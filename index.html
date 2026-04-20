@@ -1391,20 +1391,19 @@ async function generatePDF() {
   const coteSuffix = cr.cote !== '—' ? '_' + cr.cote : '';
   const fname = `CR_${sanitize(cr.nom)}${coteSuffix}${safePatient}_${dateFile}.pdf`;
 
-  // iOS 15+ / Android : déclenche le Share Sheet natif (Enregistrer dans Fichiers, AirDrop, Mail…)
-  // Fallback : téléchargement direct si navigateur non compatible ou erreur
-  if (navigator.canShare) {
+  // iOS / Android : déclenche le Share Sheet natif (Enregistrer dans Fichiers, AirDrop, Mail…)
+  // Sur desktop (Mac / Windows / Linux) : téléchargement classique car Share Sheet desktop n'offre pas "Enregistrer dans Fichiers"
+  const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+  if (isMobile && navigator.canShare) {
     try {
       const pdfBlob = doc.output('blob');
       const pdfFile = new File([pdfBlob], fname, { type: 'application/pdf' });
       if (navigator.canShare({ files: [pdfFile] })) {
-        await navigator.share({ files: [pdfFile], title: 'Compte rendu ALR' });
+        await navigator.share({ files: [pdfFile] });
         return;
       }
     } catch (err) {
-      // Annulé par l'utilisateur → pas de fallback
       if (err && err.name === 'AbortError') return;
-      // Autre erreur → fallback téléchargement
     }
   }
   doc.save(fname);
@@ -1452,11 +1451,31 @@ function copyText() {
   }
   t += `\nDr TATOPOULOS — Anesthésie Réanimation\n`;
 
-  if (navigator.clipboard && navigator.clipboard.writeText) {
-    navigator.clipboard.writeText(t).then(showToast).catch(() => fallbackCopy(t));
-  } else {
-    fallbackCopy(t);
+  // Méthode uniquement execCommand pour éviter tout effet de bord iCloud/extensions
+  // qui intercepteraient navigator.clipboard.writeText
+  const ta = document.createElement('textarea');
+  ta.value = t;
+  ta.style.position = 'fixed';
+  ta.style.top = '0';
+  ta.style.left = '0';
+  ta.style.opacity = '0';
+  ta.style.pointerEvents = 'none';
+  ta.setAttribute('readonly', '');
+  document.body.appendChild(ta);
+  ta.select();
+  ta.setSelectionRange(0, t.length);
+  try {
+    document.execCommand('copy');
+    showToast();
+  } catch (e) {
+    // Ultime fallback : essai clipboard API si execCommand échoue
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(t).then(showToast).catch(() => alert('Copie impossible'));
+    } else {
+      alert('Copie impossible sur ce navigateur');
+    }
   }
+  document.body.removeChild(ta);
 }
 
 function fallbackCopy(text) {
